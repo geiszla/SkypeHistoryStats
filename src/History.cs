@@ -20,6 +20,7 @@ namespace SkypeHistoryStats
         public List<Message> Messages { get; }
 
         #region Public Methods
+
         /// <summary>Parses the specified source files to a History object.</summary>
         /// <param name="sourceFiles">The text files, which contain the Skype history.</param>
         /// <returns>A <see cref="History" /> object constructed from the parsed messages.</returns>
@@ -93,9 +94,11 @@ namespace SkypeHistoryStats
 
             return users;
         }
+
         #endregion
 
         #region Private Methods
+
         private static List<Message> ParseMessages(string history)
         {
             // Regex for matching date and message headers
@@ -143,6 +146,7 @@ namespace SkypeHistoryStats
 
             return (dayContentStart, dayContentEnd - dayContentStart);
         }
+
         #endregion
     }
 }

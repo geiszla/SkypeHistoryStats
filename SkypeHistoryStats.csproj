@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -6,21 +6,18 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="data\2012.05.03-2014.03.02.txt" />
-    <None Remove="data\2014.03.01-2015.09.06.txt" />
+    <None Remove="data\**\*" />
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="data\2012.05.03-2014.03.02.txt">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="data\2014.03.01-2015.09.06.txt">
+    <Content Include="data\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="ConsoleTables" Version="2.3.0" />
+    <PackageReference Include="Costura.Fody" Version="4.0.0" />
   </ItemGroup>
 
 </Project>

@@ -56,7 +56,7 @@ namespace SkypeHistoryStats
                 return;
             }
 
-            Console.WriteLine("[i] History files found. Parsing messages...");
+            Console.WriteLine($"[i] {inputFiles.Length} history files found. Parsing messages...");
 
             var history = History.Parse(inputFiles);
 
@@ -70,14 +70,54 @@ namespace SkypeHistoryStats
 
         private static void PrintStatistics(History history)
         {
-            var messages = history.Messages;
+            var textMessages = history.Messages.Where(message => message.Type == MessageTypes.Text).ToArray();
+            var words = textMessages.SelectMany(message => message.Value.Split(' ')).ToArray();
 
             // Print statistics for the whole history
             Console.WriteLine("\nAll-time statistics");
 
+            // Basic history statistics
+            PrintBasicStatistics(history, textMessages, words);
+
+            // Dates without messages
+            Console.WriteLine("Dates without activity (longer than 7 days)");
+            var emptyDatesTable = new ConsoleTable("Missing date", "Timespan");
+
+            foreach (var date in history.MissingDates)
+            {
+                if ((date.To - date.From).Days > 7)
+                {
+                    emptyDatesTable.AddRow($"{date.From:d} - {date.To:d}", GetTimeSpanString(date.From, date.To));
+                }
+            }
+
+            emptyDatesTable.Write(Format.Alternative);
+
+            // Most common words
+            PrintMostCommonWords(words);
+
+            // User statistics
+            Console.WriteLine("Users by number of words (top 10)");
+
+            var userByWordsTable = new ConsoleTable("#", "Name", "Number of words");
+            var userWordCounts = history.GetUserWordCounts(textMessages);
+            PrintUserLists(userWordCounts, userByWordsTable);
+
+            Console.WriteLine("Users by number of messages (top 10)");
+
+            var userByMessagesTable = new ConsoleTable("#", "Name", "Number of messages");
+            var userMessageCounts = history.GetUserMessageCounts(textMessages);
+            PrintUserLists(userMessageCounts, userByMessagesTable);
+
+            // Prompt the user to select a Skype user to get statistics about
+            SelectUser(userMessageCounts.Select(userTuple => userTuple.Item1).ToArray());
+        }
+
+        private static void PrintBasicStatistics(History history, IReadOnlyList<Message> textMessages, string[] words)
+        {
             // First and last message
-            var startDate = messages[0].SendDate;
-            var endDate = messages.Last().SendDate;
+            var startDate = textMessages[0].SendDate;
+            var endDate = textMessages.Last().SendDate;
 
             var basicStatsTable = new ConsoleTable("First message", startDate.ToString(CultureInfo.CurrentCulture))
                 .AddRow("Last Message", endDate);
@@ -91,32 +131,78 @@ namespace SkypeHistoryStats
             var days = endDate.Subtract(startDate.AddMonths(totalMonths)).Days;
             var timeSpan = $"{years} year(s) {months} month(s) {days} day(s)";
 
-            basicStatsTable.AddRow("Timespan", timeSpan)
-                .AddRow("Number of messages", messages.Count.ToString("N0"));
+            basicStatsTable.AddRow("Timespan", timeSpan);
+
+            // Message statistics
+            var emptyDayCount = history.MissingDates.Aggregate(0, (sum, date) => sum + (date.To - date.From).Days);
+            var totalDayCount = (endDate - startDate).Days;
+            var percentageString = ((double) emptyDayCount / totalDayCount * 100).ToString("N2") + "%";
+
+            var emptyDayText = $"{emptyDayCount} (out of {totalDayCount} days) ({percentageString})";
+
+            // Message types
+            var messageTypeCounts = history.Messages.GroupBy(message => message.Type)
+                .Select(typeGroup => (typeGroup.Key, typeGroup.Count()))
+                .ToDictionary(countTuple => countTuple.Key, countTuple => countTuple.Item2);
+
+            basicStatsTable.AddRow("Number of days without activity", emptyDayText)
+                .AddRow("Number of text messages", messageTypeCounts[MessageTypes.Text].ToString("N0"))
+                .AddRow("Number of removed messages", messageTypeCounts[MessageTypes.Removed].ToString("N0"))
+                .AddRow("Number of status messages", messageTypeCounts[MessageTypes.Status].ToString("N0"))
+                .AddRow("Number of files sent", messageTypeCounts[MessageTypes.File].ToString("N0"))
+                .AddRow("Number of calls", messageTypeCounts[MessageTypes.Call].ToString("N0"));
+
+            // Average number of messages
+            basicStatsTable.AddRow("Average number of messages a day",
+                ((double) textMessages.Count / totalDayCount).ToString("N2"));
 
             // Word and character statistics
-            var allWords = messages.SelectMany(message => message.Text.Split(' ')).ToArray();
-            basicStatsTable.AddRow("Number of words", allWords.Length.ToString("N0"));
+            basicStatsTable.AddRow("Number of words", words.Length.ToString("N0"));
 
-            var characterCount = messages.Aggregate(0, (current, message) => current + message.Text.Length);
+            var characterCount = textMessages.Aggregate(0, (current, message) => current + message.Value.Length);
             basicStatsTable.AddRow("Number of characters", characterCount.ToString("N0"));
 
-            basicStatsTable.AddRow("Average message length", $"{(double) allWords.Length / messages.Count:N2} words")
-                .AddRow("Average word length", $"{(double) characterCount / allWords.Length:N2} characters");
+            basicStatsTable.AddRow("Average message length",
+                    $"{(double) words.Length / textMessages.Count:N2} words")
+                .AddRow("Average word length", $"{(double) characterCount / words.Length:N2} characters");
 
             basicStatsTable.Write(Format.Alternative);
+        }
 
-            PrintWordStatistics(allWords);
+        private static string GetTimeSpanString(DateTime startDate, DateTime endDate)
+        {
+            var totalMonths = (endDate.Year - startDate.Year) * 12 + endDate.Month - startDate.Month;
+            totalMonths += endDate.Day < startDate.Day ? -1 : 0;
 
-            Console.WriteLine("Users (top 10)");
+            var years = totalMonths / 12;
+            var months = totalMonths % 12;
+            var days = endDate.Subtract(startDate.AddMonths(totalMonths)).Days;
 
-            // Print users in the order of the number of messages they sent
-            var users = history.GetUsers(messages);
-            var userTable = new ConsoleTable("#", "Name", "Number of messages");
-
-            for (var i = 0; i < (users.Length < 10 ? users.Length : 10); i++)
+            var timeSpanString = "";
+            if (years > 0)
             {
-                var currentNames = users[i].Names;
+                timeSpanString += $"{years} year(s) ";
+            }
+
+            if (months > 0)
+            {
+                timeSpanString += $"{months} month(s) ";
+            }
+
+            if (days > 0)
+            {
+                timeSpanString += $"{days} day(s)";
+            }
+
+            return timeSpanString;
+        }
+
+        private static void PrintUserLists(IReadOnlyList<(User, int)> users, ConsoleTable usersTable)
+        {
+            // Print users in the order of the number of messages they sent
+            for (var i = 0; i < (users.Count < 10 ? users.Count : 10); i++)
+            {
+                var currentNames = users[i].Item1.Names;
                 var displayedNames = currentNames.Count > 3 ? currentNames.Take(3) : currentNames;
                 var nameText = string.Join(", ", displayedNames);
 
@@ -125,13 +211,10 @@ namespace SkypeHistoryStats
                     nameText += ", ...";
                 }
 
-                userTable.AddRow(i, nameText, users[i].Messages.Count);
+                usersTable.AddRow(i, nameText, users[i].Item2.ToString("N0"));
             }
 
-            userTable.Write(Format.Alternative);
-
-            // Prompt the user to select a Skype user to get statistics about
-            SelectUser(users);
+            usersTable.Write(Format.Alternative);
         }
 
         private static void SelectUser(IReadOnlyList<User> users)
@@ -193,13 +276,13 @@ namespace SkypeHistoryStats
             var messages = user.Messages;
 
             // Print first and last message
-            var userTable = new ConsoleTable("First message", messages[0].Text);
-            userTable.AddRow("Last message", messages.Last().Text);
+            var userTable = new ConsoleTable("First message", messages[0].Value);
+            userTable.AddRow("Last message", messages.Last().Value);
 
             userTable.Write(Format.Alternative);
         }
 
-        private static void PrintWordStatistics(IEnumerable<string> words)
+        private static void PrintMostCommonWords(IEnumerable<string> words)
         {
             // Regex to trim invalid characters from the words
             const string validCharacters = @"^a-zA-Z0-9-_";
